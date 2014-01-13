@@ -2,6 +2,7 @@ import numpy as np
 import matplotlib.pyplot as pl
 import milne
 import cholesky
+import numpy.core.umath_tests
 
 class milneGP(object):
 	
@@ -14,10 +15,13 @@ class milneGP(object):
 		self.noiseLevel = noiseLevel
 		self.nCovariance = 0
 		self.nTotalParCovariance = 0
-		self.nParCovariance = []
+		self.nParCovariance = []		
 		self.funCovariance = []
 		self.lineInfo = lineInfo
 		self.synth = milne.milne(self.lineInfo)
+		self.nTotalPars = 9
+		self.nParsModel = 9
+		self.nWavelengths = self.synth.lineInfo[-1]
 		
 		self.covAddTypes = {'sqr' : self.addCovarianceSquareExponential}
 		self.covTypes = {'sqr' : self.covarianceSquareExponential}
@@ -38,6 +42,7 @@ class milneGP(object):
 		self.nCovariance += 1
 		self.nParCovariance.append(2)
 		self.nTotalParCovariance += 2
+		self.nTotalPars += 2
 		self.funCovariance.append('sqr')
 		return
 	
@@ -49,15 +54,15 @@ class milneGP(object):
 		over all defined covariances
 		"""
 		left = 0
-		self.K = 0.0
-		self.dK = []
+		self.K = np.zeros((self.nWavelengths,self.nWavelengths))
+		self.dK = np.zeros((self.nWavelengths,self.nWavelengths,self.nTotalParCovariance))
 		for i in range(self.nCovariance):
 			right = left + self.nParCovariance[i]
 			pars = covPars[left:right]
-			K, dK = self.covTypes[self.funCovariance[i]](pars)
-			left = right
+			K, dK = self.covTypes[self.funCovariance[i]](pars)			
 			self.K += K
-			self.dK.append(dK)
+			self.dK[:,:,left:right] = dK
+			left = right
 		return
 		
 	def covarianceSquareExponential(self, pars):
@@ -79,7 +84,7 @@ class milneGP(object):
 		dKdsigmaGP = expon
 		dKdlambdaGP = -0.5 * K * x**2
 	
-		return K, np.vstack((dKdlambdaGP, dKdsigmaGP))
+		return K, np.dstack((dKdlambdaGP, dKdsigmaGP))
 	
 	def marginalLikelihood(self, pars):
 		"""
@@ -89,11 +94,13 @@ class milneGP(object):
 		funPars = pars[self.nTotalParCovariance:]
 		
 		self.covariance(covPars)
-									
-		C = self.K + self.noiseLevel**2 * np.identity(self.lineInfo[-1])
+
+# Compute covariance matrix and invert it
+		C = self.K + self.noiseLevel**2 * np.identity(self.nWavelengths)
 
 		CInv, logD = cholesky.cholInvert(C)
-				
+
+# Call the model for the mean				
 		w, S, dS = self.synth.synthDerivatives(funPars)
 		
 		S = S[0,:]
@@ -102,23 +109,20 @@ class milneGP(object):
 		residual = self.stokes[0,:] - S
 		likelihood = 0.5 * np.dot(np.dot(residual.T,CInv),residual) + 0.5 * logD
 		
-	## Jacobian
-		#jac = np.zeros(5)
+		alpha = np.dot(CInv, residual)
 		
-	## dLdlambda
-		#residual2 = np.dot(CInv, residual)
-		#jac[0] = -0.5 * np.sum(numpy.core.umath_tests.inner1d(CInv, dKdl.T)) + 0.5*np.dot(np.dot(residual2.T,dKdl),residual2)
-		#jac[0] = -jac[0] * lambdaGP
+# Computation of the Jacobian
+# First for the parameters of the covariance function
+		jacobian = np.zeros(self.nTotalPars)
 		
-	## dLdsigma
-		#jac[1] = -0.5 * np.sum(numpy.core.umath_tests.inner1d(CInv, dKds.T)) + 0.5*np.dot(np.dot(residual2.T,dKds),residual2)
-		#jac[1] = -jac[1] * sigmaGP
-		
-		#for i in range(3):
-			#jac[i+2] = -np.dot(residual2.T,jacVoigt[i,:])
+		for i in range(self.nTotalParCovariance):
+			jacobian[i] = -0.5 * np.sum(numpy.core.umath_tests.inner1d(CInv, self.dK[:,:,i].T)) + 0.5*np.dot(np.dot(alpha.T,self.dK[:,:,i]),alpha)
+
+# Chain rule to take into account that we use the exponential of the parameters			
+		jacobian[0:self.nTotalParCovariance] *= -covPars
 				
-		#return likelihood, jac
-
+# And then the Jacobian of the mean
+		for i in range(self.nParsModel):
+			jacobian[self.nTotalParCovariance+i] = -np.dot(alpha.T,dS[i,:])
 			
-
-		
+		return likelihood, jacobian		
