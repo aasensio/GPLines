@@ -15,6 +15,7 @@ class milne:
 	def __init__(self, lineInfo):
 		self.lineInfo = lineInfo		
 		m.milnemod.setline(lineInfo)
+		self.nPars = 9
 		
 	
 	def synth(self, model):
