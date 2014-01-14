@@ -14,9 +14,10 @@ class milneGP(object):
 #********************************
 # Initialization
 #********************************
-	def __init__(self, xInput, yInput, noiseLevel, lineInfo):
+	def __init__(self, xInput, yInput, noiseLevel, lineInfo, whichToInvert=[True,True,False,False]):
+		self.whichToInvert = np.asarray(whichToInvert)
 		self.wavelength = xInput
-		self.stokes = yInput
+		self.stokes = np.ravel(yInput[self.whichToInvert,:])		
 		self.noiseLevel = noiseLevel
 		self.nCovariance = 0
 		self.nTotalParCovariance = 0
@@ -26,7 +27,9 @@ class milneGP(object):
 		self.synth = milne.milne(self.lineInfo)
 		self.nTotalPars = 9
 		self.nParsModel = 9
-		self.nWavelengths = self.synth.lineInfo[-1]		
+		self.nWavelengths = self.synth.lineInfo[-1]
+		self.nWavelengthsTotal = len(self.stokes)
+		self.nParsToInvert = np.sum(self.whichToInvert)
 		
 		self.covAddTypes = {'sqr' : self.addCovarianceSquareExponential, 'periodic' : self.addCovariancePeriodic}
 		self.covTypes = {'sqr' : self.covarianceSquareExponential, 'periodic' : self.covariancePeriodic}
@@ -157,19 +160,28 @@ class milneGP(object):
 		funPars = pars[self.nTotalParCovariance:]
 		
 		self.K, self.dK = self.covariance(covPars, self.wavelength, self.wavelength)
+		print self.dK.shape
 
 # Compute covariance matrix and invert it
 		self.C = self.K + self.noiseLevel**2 * np.identity(self.nWavelengths)
 		
+# Invert each block and then build the full matrix
 		self.CInv, logD = cholesky.cholInvert(self.C)
+		
+# Concatenate matrices and correct the log-determinant
+		logD *= self.nParsToInvert
+		
+		b = [self.CInv]*self.nParsToInvert
+		self.CInv = scipy.linalg.block_diag(*b)
 		
 # Call the model for the mean				
 		w, self.S, dS = self.synth.synthDerivatives(funPars)
 		
-		self.S = self.S[0,:]
-		dS = dS[0,:,:]
+# Put all Stokes parameters in a 1D vector
+		self.S = np.ravel(self.S[self.whichToInvert,:])
+		dS = np.reshape(dS[:,self.whichToInvert,:],(9,self.nWavelengthsTotal))
 				
-		residual = self.stokes[0,:] - self.S			
+		residual = self.stokes - self.S
 		
 		likelihood = 0.5 * np.dot(np.dot(residual.T,self.CInv),residual) + 0.5 * logD
 		
