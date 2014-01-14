@@ -38,14 +38,38 @@ mu = 1.0
 VDop = 0.15
 kl = 5.0
 model = [BField, BTheta, BChi, VMac, damping, beta, mu, VDop, kl]
+modelBlend = [0.0, 0.0, 0.0, VMac+3, damping, 0.5, mu, VDop, 1.0]
 	
-noiseLevel = 1e-3
+noiseLevel = 1e-2
 wavelength, stokes = genTestLine(lineInfo, model, noiseLevel)
+wavelength, stokesBlend = genTestLine(lineInfo, modelBlend, noiseLevel)
 wavelength -= np.mean(wavelength)
-
-milne = fitMilne.milneGP(wavelength, stokes, noiseLevel, lineInfo)
-milne.addCovariance('sqr')
-milne.marginalLikelihood([1.0,2.0,BField, BTheta, BChi, VMac, damping, beta, mu, VDop, kl])
+stokesNew = stokes.copy()
+stokesNew[0,:] += 0.5*wavelength
 
 
-pl.plot(milne.wavelength, milne.stokes[3,:])
+GP = fitMilne.milneGP(wavelength, stokesNew, noiseLevel, lineInfo)
+GP.addCovariance('sqr')
+GP.optimizeGP()
+#GP.marginalLikelihood([2.0,1.0,BField, BTheta, BChi, VMac, damping, beta, mu, VDop, kl])
+res = GP.predictGP([1.0,1.0,BField, BTheta, BChi, VMac, damping, beta, mu, VDop, kl])
+
+
+fig = pl.figure(figsize=(12,8))
+ax = fig.add_subplot(221)
+ax.plot(GP.wavelength, stokesNew[0,:],'o', color='#969696')
+ax.plot(GP.wavelength, res[1], linewidth=2, color='#507FED')
+
+ax = fig.add_subplot(222)
+ax.plot(GP.wavelength, stokes[0,:],'o', color='#969696')
+ax.plot(GP.wavelength, res[0], linewidth=2, color='#507FED')
+
+ax = fig.add_subplot(223)
+ax.plot(GP.wavelength, res[1]-res[0],'o', color='#969696')
+ax.plot(GP.wavelength, stokesNew[0,:]-stokes[0,:], linewidth=2, color='#507FED')
+
+ax = fig.add_subplot(224)
+ax.plot(GP.wavelength, stokesNew[0,:],'bo')
+pl.plot(GP.wavelength, res[0], 'y', linewidth=2)
+pl.plot(GP.wavelength, res[1], 'k', linewidth=2)
+pl.plot(GP.wavelength, stokes[0,:], 'ro')
