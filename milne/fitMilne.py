@@ -6,6 +6,7 @@ import numpy.core.umath_tests
 import scipy.optimize as opt
 import scipy.linalg
 from DIRECT import solve
+import pdb
 
 class milneGP(object):
 	
@@ -203,7 +204,7 @@ class milneGP(object):
 		
 		if (likelihood < self.maxLike):
 			self.maxLike = likelihood
-			print self.maxLike
+			print self.maxLike, np.log(covPars)
 			
 		return likelihood, jacobian
 	
@@ -225,11 +226,11 @@ class milneGP(object):
 # Do a sensible initialization				
 		lower = np.zeros(self.nTotalPars)
 		upper = np.zeros(self.nTotalPars)
-		lower[0:self.nTotalParCovariance] = [-20.0,-20.0]
-		upper[0:self.nTotalParCovariance] = [5.0,5.0]
-		lower[self.nTotalParCovariance:] = [0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.03, 0.0]
-		upper[self.nTotalParCovariance:] = [2000.0, 180.0, 360.0, 10.0, 2.0, 10.0, 0.3, 10.0]
-		x, fmin, ierror = solve(self.funcWrapperDIRECT, lower, upper, volper=1e-3, algmethod=1)
+		lower[0:self.nTotalParCovariance] = [np.log(1.0/3.0**2),np.log(1e-5**2)]
+		upper[0:self.nTotalParCovariance] = [np.log(1.0/0.5**2),np.log(1e-2**2)]
+		lower[self.nTotalParCovariance:] = [0, 0.0, 0.0, -5.0, 0.0, 0.0, 0.03, 0.0]
+		upper[self.nTotalParCovariance:] = [2000.0, 180.0, 180.0, 5.0, 2.0, 4.0, 0.3, 10.0]
+		x, fmin, ierror = solve(self.funcWrapperDIRECT, lower, upper, volper=1e-15, algmethod=1)
 		self.optimalPars = x
 		self.marginalLikelihood(self.optimalPars)
 		return
@@ -243,11 +244,9 @@ class milneGP(object):
 		"""
 		
 # Do a sensible initialization		
-		x0 = np.ones(self.nTotalPars)
-		x0[0:self.nTotalParCovariance] = [1.0,-20.0]
-		x0[self.nTotalParCovariance:] = [10.0, 20.0, 20.0, 0.0, 0.0, 2.0, 0.1, 3.0]
-		bnds = [(None,None)]*self.nTotalPars		
-		bnds[self.nTotalParCovariance:] = [(0,2000.0), (0.0, 180.0), (0.0, 360.0), (0.0, 10.0), (0.0, 2.0), (0.0, 10.0), (0.03,0.3), (0.0, 10.0)]
+		x0 = self.optimalPars
+		bnds = [(np.log(1.0/3.0**2),np.log(1.0/0.5**2)),(np.log(1e-5**2),np.log(1e-2**2))]
+		bnds[self.nTotalParCovariance:] = [(0,2000.0), (0.0, 180.0), (0.0, 180.0), (-5.0, 10.0), (0.0, 2.0), (0.0, 4.0), (0.03,0.3), (0.0, 10.0)]
 		res = opt.minimize(self.marginalLikelihood, x0, method='L-BFGS-B', jac=True, bounds=bnds)
 		self.optimalPars = res.x
 		self.marginalLikelihood(self.optimalPars)
