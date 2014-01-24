@@ -8,7 +8,7 @@ import scipy.linalg
 from DIRECT import solve
 import pdb
 
-class milneGP(object):
+class fringeGP(object):
 	
 	"""
 	"""
@@ -25,8 +25,8 @@ class milneGP(object):
 		self.nParCovariance = []		
 		self.funCovariance = []		
 		self.synth = fringe.fringe(self.wavelength)
-		self.nTotalPars = 3
-		self.nParsModel = 3
+		self.nTotalPars = 4
+		self.nParsModel = 4
 		self.nWavelengths = len(xInput)
 		self.maxLike = 1e10
 		
@@ -167,38 +167,32 @@ class milneGP(object):
 		self.CInv, logD = cholesky.cholInvert(self.C)
 				
 # Call the model for the mean				
-		w, self.S, dS = self.synth.synthDerivatives(funPars)
+		self.S, dS = self.synth.synthDerivatives(funPars)
 		
-		likelihood = 0.0
 		jacobian = np.zeros(self.nTotalPars)
 		
-# Put all Stokes parameters in a 1D vector
-		#for indStokes in self.parsToInvert[0]:
-			
-			#synthStokes = self.S[indStokes,:]
-			#synthStokesJac = dS[:,indStokes,:]
-				
-			#residual = self.stokes[indStokes] - synthStokes
+		residual = self.stokes - self.S
 		
-			#likelihood += 0.5 * np.dot(np.dot(residual.T,self.CInv),residual) + 0.5 * logD
+		likelihood = 0.5 * np.dot(np.dot(residual.T,self.CInv),residual) + 0.5 * logD
 		
-			#alpha = np.dot(self.CInv, residual)
+		alpha = np.dot(self.CInv, residual)
 		
 ## Computation of the Jacobian
 ## First for the parameters of the covariance function		
-			#for i in range(self.nTotalParCovariance):
-				#jacobian[i] += -0.5 * np.sum(numpy.core.umath_tests.inner1d(self.CInv, self.dK[:,:,i].T)) + 0.5*np.dot(np.dot(alpha.T,self.dK[:,:,i]),alpha)
+		for i in range(self.nTotalParCovariance):
+			jacobian[i] += -0.5 * np.sum(numpy.core.umath_tests.inner1d(self.CInv, self.dK[:,:,i].T)) + 0.5*np.dot(np.dot(alpha.T,self.dK[:,:,i]),alpha)
 
 ## Chain rule to take into account that we use the exponential of the parameters			
-			#jacobian[0:self.nTotalParCovariance] *= -covPars
+		jacobian[0:self.nTotalParCovariance] *= -covPars
 				
 ## And then the Jacobian of the mean
-			#for i in range(self.nParsModel):
-				#jacobian[self.nTotalParCovariance+i] = -np.dot(alpha.T,synthStokesJac[i,:])
+		for i in range(self.nParsModel):
+			jacobian[self.nTotalParCovariance+i] = -np.dot(alpha.T,dS[i,:])
 		
-		#if (likelihood < self.maxLike):
-			#self.maxLike = likelihood
-			#print self.maxLike, np.log(covPars)
+		
+		if (likelihood < self.maxLike):
+			self.maxLike = likelihood
+			print self.maxLike, np.log(covPars)
 			
 		return likelihood, jacobian
 	
@@ -221,10 +215,10 @@ class milneGP(object):
 		lower = np.zeros(self.nTotalPars)
 		upper = np.zeros(self.nTotalPars)
 		lower[0:self.nTotalParCovariance] = [np.log(1.0/3.0**2),np.log(1e-5**2)]
-		upper[0:self.nTotalParCovariance] = [np.log(1.0/0.5**2),np.log(1e-2**2)]
-		lower[self.nTotalParCovariance:] = [0, 0.0, 0.0, -5.0, 0.0, 0.0, 0.03, 0.0]
-		upper[self.nTotalParCovariance:] = [2000.0, 180.0, 180.0, 5.0, 2.0, 4.0, 0.3, 10.0]
-		x, fmin, ierror = solve(self.funcWrapperDIRECT, lower, upper, volper=1e-15, algmethod=1)
+		upper[0:self.nTotalParCovariance] = [np.log(1.0/0.5**2),np.log(1e-1**2)]
+		lower[self.nTotalParCovariance:] = [0.0, 0.0, 0.0, 0.0]
+		upper[self.nTotalParCovariance:] = [0.5, 0.2, 1.0, 2*np.pi]
+		x, fmin, ierror = solve(self.funcWrapperDIRECT, lower, upper, volper=1e-13, algmethod=1)
 		self.optimalPars = x
 		self.marginalLikelihood(self.optimalPars)
 		return
@@ -253,7 +247,7 @@ class milneGP(object):
 		covPars = np.exp(pars[0:self.nTotalParCovariance])
 		funPars = pars[self.nTotalParCovariance:]
 		
-		w, S = self.synth.synth(funPars, self.mu)
+		S = self.synth.synth(funPars)
 		
 		K, dK = self.covariance(covPars, self.wavelength, self.wavelength)
 		C = K + self.noiseLevel**2 * np.identity(self.nWavelengths)
@@ -264,8 +258,6 @@ class milneGP(object):
 		
 		outStokes = np.zeros((4,self.nWavelengths))
 		
-		for i in range(4):
-			if (self.whichToInvert[i] == True):
-				outStokes[i,:] = np.dot(KStar,np.dot(CInv, (self.stokes[i,:] - S[i,:]))) + S[i,:]
+		outStokes = np.dot(KStar,np.dot(CInv, (self.stokes - S))) + S
 		
 		return S, outStokes
